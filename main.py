@@ -146,11 +146,11 @@ async def health_check():
     # PostgreSQL 연결 확인
     try:
         conn = psycopg2.connect(
-            host="localhost",
+            host=os.getenv('POSTGRES_HOST', 'localhost'),
             port=5432,
             database="papers_db",
             user="postgres",
-            password="postgres123"
+            password=os.getenv('POSTGRES_PASSWORD', 'postgres123')
         )
         conn.close()
         services_status["postgresql"] = "healthy"

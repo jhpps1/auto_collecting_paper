@@ -26,7 +26,7 @@ def check_postgresql_status():
             try:
                 # 데이터베이스 연결 시도
                 conn = psycopg2.connect(
-                    host="localhost",
+                    host=os.getenv('POSTGRES_HOST', 'localhost'),
                     database=db,
                     user="postgres",
                     password=password

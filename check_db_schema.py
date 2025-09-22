@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import psycopg2
+import os
 
 def check_database_schema():
     """데이터베이스 스키마 확인"""
@@ -11,7 +12,7 @@ def check_database_schema():
         for password in passwords:
             try:
                 conn = psycopg2.connect(
-                    host="localhost",
+                    host=os.getenv('POSTGRES_HOST', 'localhost'),
                     database=db,
                     user="postgres",
                     password=password

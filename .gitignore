@@ -1,0 +1,39 @@
+# 환경 설정 파일 (비밀번호 포함)
+.env
+
+# 임시 파일들
+pdfs/
+grobid_output/
+__pycache__/
+*.pyc
+gh_*
+*.tar.gz
+
+# 로그 파일
+*.log
+
+# Docker 관련
+docker-compose.override.yml
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS 관련
+.DS_Store
+Thumbs.db
+
+# Python 관련
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 임시 백업 파일
+*~
+*.bak
+*.backup

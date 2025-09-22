@@ -41,19 +41,33 @@ assigned_concept = 'C78519656'  # Machine Learning (수진이 이 줄 주석 해
 - **경찬**: 51번 줄 `# assigned_concept = 'C2779118'` 주석 해제
 - **민**: 54번 줄 `# assigned_concept = 'C41008148'` 주석 해제
 
-### 2단계: Docker Compose 실행
-```bash
-# 환경변수 설정 (.env 파일 생성)
-cp .env.example .env
-echo "POSTGRES_HOST=paperserver.duckdns.org" > .env
-echo "POSTGRES_PASSWORD=팀DB비밀번호" >> .env
+### 2단계: 환경 설정 및 Docker Compose 실행
 
+#### 🔒 환경 변수 설정 (중요!)
+```bash
+# 1. 템플릿 파일을 복사하여 .env 파일 생성
+cp .env.example .env
+
+# 2. .env 파일을 편집기로 열어서 YOUR_PASSWORD_HERE를 실제 비밀번호로 변경
+nano .env  # 또는 메모장으로 열기
+
+# .env 파일에서 수정할 부분:
+# POSTGRES_PASSWORD=YOUR_PASSWORD_HERE  → POSTGRES_PASSWORD=실제비밀번호
+```
+
+#### 🐳 Docker 실행
+```bash
 # 파이프라인 실행
 docker compose up -d
 
 # 로그 확인
 docker compose logs -f pipeline
 ```
+
+#### ⚠️ 보안 주의사항
+- `.env` 파일에는 실제 비밀번호가 들어있으므로 **절대 Git에 커밋하지 마세요**
+- `.gitignore`에 이미 `.env`가 포함되어 있어 실수로 커밋되지 않습니다
+- 팀원끼리 비밀번호를 공유할 때는 안전한 방법을 사용하세요
 
 ### 3단계: 수집 확인
 ```bash

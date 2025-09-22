@@ -9,15 +9,16 @@ import time
 import sys
 import subprocess
 import psycopg2
+import os
 from datetime import datetime
 
 # PostgreSQL 연결 설정
 DB_CONFIG = {
-    'host': 'localhost',
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
     'port': 5432,
     'database': 'papers_db',
     'user': 'postgres',
-    'password': 'postgres123'
+    'password': os.getenv('POSTGRES_PASSWORD', 'postgres123')
 }
 
 class InfinitePipeline:

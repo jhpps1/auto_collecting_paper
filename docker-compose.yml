@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  grobid:
+    image: lfoppiano/grobid:0.7.3
+    ports:
+      - "8070:8070"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8070/api/isalive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  pipeline:
+    build: .
+    depends_on:
+      grobid:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - GROBID_URL=http://grobid:8070
+    volumes:
+      - ./pdfs:/app/pdfs
+      - ./grobid_output:/app/grobid_output
+    restart: unless-stopped
+    command: ["python3", "infinite_pipeline.py"]  # 무한 수집 모드

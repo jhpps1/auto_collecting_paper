@@ -28,7 +28,7 @@ class FullOpenAlexCollector:
             'User-Agent': 'Mozilla/5.0 (RSP-Paper-System/1.0; mailto:test@example.com)'
         }
 
-    def fetch_papers(self, query="machine learning", count=10):
+    def fetch_papers(self, query="machine learning", count=10, page=1):
         """OpenAlex API에서 Computer Science 분야 논문 데이터 가져오기"""
 
         # ===================================================
@@ -51,7 +51,7 @@ class FullOpenAlexCollector:
         # assigned_concept = 'C2779118'   # Natural Language Processing (경찬이 이 줄 주석 해제)
 
         # 👤 민: Computer Science 전반 담당
-        # assigned_concept = 'C41008148'  # Computer Science (민이 이 줄 주석 해제)
+        assigned_concept = 'C41008148'  # Computer Science (민이 이 줄 주석 해제)
 
         # ===================================================
         # ⚠️  주의: 위에서 정확히 하나만 주석 해제하세요!
@@ -88,11 +88,12 @@ class FullOpenAlexCollector:
             'search': query,
             'filter': filter_string,
             'per-page': min(count, 25),  # API 제한
+            'page': page,  # 페이지 번호 추가
             'sort': 'cited_by_count:desc'
         }
 
         try:
-            print(f"🔍 OpenAlex API 요청: '{query}', {count}개 논문...")
+            print(f"🔍 OpenAlex API 요청: '{query}', {count}개 논문 (페이지 {page})...")
             response = requests.get(self.base_url, params=params, headers=self.headers)
             response.raise_for_status()
 
@@ -511,13 +512,13 @@ class FullOpenAlexCollector:
         except:
             return ""
 
-    def collect_and_save(self, query="machine learning", count=10):
+    def collect_and_save(self, query="machine learning", count=10, page=1):
         """전체 수집 및 저장 프로세스"""
         print(f"🚀 OpenAlex 전체 메타데이터 수집 시작")
-        print(f"   쿼리: '{query}', 개수: {count}")
+        print(f"   쿼리: '{query}', 개수: {count}, 페이지: {page}")
 
         # 1. OpenAlex API에서 논문 데이터 수집
-        papers = self.fetch_papers(query=query, count=count)
+        papers = self.fetch_papers(query=query, count=count, page=page)
 
         if not papers:
             print("❌ 수집된 논문이 없습니다")
@@ -576,11 +577,12 @@ def main():
     parser = argparse.ArgumentParser(description='OpenAlex 논문 수집기')
     parser.add_argument('--query', default='machine learning neural networks', help='검색 쿼리')
     parser.add_argument('--count', type=int, default=15, help='수집할 논문 수')
+    parser.add_argument('--page', type=int, default=1, help='수집할 페이지 번호')
 
     args = parser.parse_args()
 
     collector = FullOpenAlexCollector()
-    collector.collect_and_save(query=args.query, count=args.count)
+    collector.collect_and_save(query=args.query, count=args.count, page=args.page)
 
 if __name__ == "__main__":
     main()

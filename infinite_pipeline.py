@@ -25,6 +25,7 @@ class InfinitePipeline:
     def __init__(self):
         self.iteration = 0
         self.target_papers_per_batch = 50  # 배치당 수집할 논문 수
+        self.current_page = 1  # 현재 페이지 번호 추적 (무한 증가)
 
     def get_current_stats(self):
         """현재 시스템 상태 확인"""
@@ -61,13 +62,14 @@ class InfinitePipeline:
             ]
 
             keyword = keywords[self.iteration % len(keywords)]
-            print(f"   검색 키워드: '{keyword}'")
+            print(f"   검색 키워드: '{keyword}' (페이지: {self.current_page})")
 
-            # OpenAlex 수집기 실행
+            # OpenAlex 수집기 실행 (페이지 번호 추가)
             result = subprocess.run([
                 'python3', 'full_openalex_collector.py',
                 '--query', keyword,
-                '--count', str(self.target_papers_per_batch)
+                '--count', str(self.target_papers_per_batch),
+                '--page', str(self.current_page)
             ], capture_output=True, text=True, timeout=300)
 
             if result.returncode == 0:
@@ -153,6 +155,8 @@ class InfinitePipeline:
         # 1. 논문 수집
         if self.collect_papers():
             success_count += 1
+            # 페이지 번호 무한 증가 (계속해서 새로운 논문 수집)
+            self.current_page += 1
 
         # 2. 임베딩 생성
         if self.generate_embeddings():

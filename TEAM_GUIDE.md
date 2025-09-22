@@ -5,6 +5,20 @@
 팀원들이 중복 없이 효율적으로 논문을 수집할 수 있도록 **Concept 기반 분담 시스템**을 도입했습니다.
 각 팀원은 전문 분야를 담당하여 고품질 논문 데이터를 수집합니다.
 
+## 🎉 시스템 상태 (2025-09-23 업데이트)
+
+### ✅ 완전히 작동하는 시스템
+- **PostgreSQL**: `paperserver.duckdns.org:5432` 정상 연결 ✅
+- **GROBID**: PDF 처리 서비스 정상 작동 ✅
+- **Docker**: 모든 컨테이너 안정적 실행 ✅
+- **파이프라인**: 무한 수집 모드 정상 동작 ✅
+- **현재 수집된 논문**: **431개** (임베딩 100% 완료)
+
+### 🔄 실시간 수집 진행 중
+- **키워드 순환**: AI → Computer Vision → NLP → ML → CS
+- **배치 크기**: 50개씩 자동 수집
+- **처리 과정**: 수집 → 임베딩 → HBase 유사도 계산
+
 ## 🎯 팀원별 Concept 분담
 
 | 팀원 | 담당 Concept | OpenAlex ID | 설명 |
@@ -15,9 +29,9 @@
 | **경찬** | Natural Language Processing | `C2779118` | 텍스트 처리, 언어 모델, 대화 시스템 |
 | **민** | Computer Science | `C41008148` | 컴퓨터 과학 전반, 알고리즘, 시스템 |
 
-## 🚀 사용법 (3단계)
+## 🚀 간단한 시작 방법 (2단계로 단축!)
 
-### 1단계: 코드 수정
+### 1단계: 코드 수정 (선택사항)
 ```bash
 # 1. 파일 열기
 nano full_openalex_collector.py
@@ -41,7 +55,7 @@ assigned_concept = 'C78519656'  # Machine Learning (수진이 이 줄 주석 해
 - **경찬**: 51번 줄 `# assigned_concept = 'C2779118'` 주석 해제
 - **민**: 54번 줄 `# assigned_concept = 'C41008148'` 주석 해제
 
-### 2단계: 환경 설정 및 Docker Compose 실행
+### 2단계: 환경 설정 및 실행 (핵심!)
 
 #### 🔒 환경 변수 설정 (중요!)
 ```bash
@@ -192,7 +206,29 @@ python3 monitoring/generate_monthly_report.py
 
 ## 🔧 문제 해결
 
-### 자주 발생하는 문제들
+### ✅ 해결된 주요 문제들 (2025-09-23 업데이트)
+
+#### 1. ~~GROBID Docker 헬스체크 문제~~ → **해결됨** ✅
+- **문제**: GROBID 컨테이너가 unhealthy 상태로 파이프라인 시작 불가
+- **해결**: Docker healthcheck 제거, 단순 의존성으로 변경
+- **결과**: GROBID와 파이프라인 모두 정상 시작
+
+#### 2. ~~PostgreSQL 연결 실패 (localhost 하드코딩)~~ → **해결됨** ✅
+- **문제**: 모든 파일에서 localhost로 하드코딩되어 원격 DB 연결 불가
+- **해결**: 환경변수 사용 (`POSTGRES_HOST`, `POSTGRES_PASSWORD`)
+- **수정된 파일**: `infinite_pipeline.py`, `check_system_status.py`, `main.py`, `check_db_schema.py`
+
+#### 3. ~~HuggingFace 호환성 문제~~ → **해결됨** ✅
+- **문제**: `ImportError: cannot import name 'cached_download' from 'huggingface_hub'`
+- **해결**: `huggingface-hub==0.14.1`로 버전 고정 (S13P21D203/AI와 동일)
+- **결과**: sentence-transformers 정상 작동
+
+#### 4. ~~보안 문제 (.env 파일 노출)~~ → **해결됨** ✅
+- **문제**: 실제 비밀번호가 Git에 노출될 위험
+- **해결**: `.gitignore` 추가, `.env.example` 템플릿 생성
+- **가이드**: 안전한 환경 설정 방법 추가
+
+### 현재 해결해야 할 문제들
 
 #### 1. "concept가 설정되지 않았습니다" 경고
 ```bash

@@ -16,27 +16,19 @@ def check_postgresql_status():
     print("1. PostgreSQL 데이터베이스 상태 확인")
     print("=" * 60)
 
-    # 시도할 비밀번호 목록
-    passwords = ["ssafy", "postgres123", "postgres", "SecurePostgres123!", ""]
-    databases = ["rsp_db", "papers_db", "postgres"]
-
+    db_name = os.getenv('POSTGRES_DB', 'paperdb')
     conn = None
-    for db in databases:
-        for password in passwords:
-            try:
-                # 데이터베이스 연결 시도
-                conn = psycopg2.connect(
-                    host=os.getenv('POSTGRES_HOST', 'localhost'),
-                    database=db,
-                    user="postgres",
-                    password=password
-                )
-                print(f"✅ 데이터베이스 연결 성공: {db} (password: {'***' if password else 'none'})")
-                break
-            except Exception as e:
-                continue
-        if conn:
-            break
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST', 'localhost'),
+            port=int(os.getenv('POSTGRES_PORT', '5432')),
+            database=db_name,
+            user=os.getenv('POSTGRES_USER', 'admin'),
+            password=os.getenv('POSTGRES_PASSWORD', 'password')
+        )
+        print(f"✅ 데이터베이스 연결 성공: {db_name}")
+    except Exception:
+        conn = None
 
     if not conn:
         print("❌ 모든 데이터베이스 연결 시도 실패")

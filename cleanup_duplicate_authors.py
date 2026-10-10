@@ -4,16 +4,17 @@
 같은 이름의 저자들을 하나로 통합하고 관련 데이터 업데이트
 """
 
+import os
 import psycopg2
 import psycopg2.extras
 
 # PostgreSQL 연결 설정
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': 'postgres123'
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 def cleanup_duplicate_authors():

@@ -9,6 +9,7 @@
 4. 유사도 계산 + HBase 저장
 """
 
+import os
 import time
 import requests
 import psycopg2
@@ -23,11 +24,11 @@ import statistics
 
 # PostgreSQL 연결 설정
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': 'postgres123'
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 class PipelineBenchmark:
@@ -162,10 +163,10 @@ class PipelineBenchmark:
             with psycopg2.connect(**DB_CONFIG) as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                     cursor.execute("""
-                        SELECT id, title, abstract, full_text
+                        SELECT id, title, abstract
                         FROM papers
                         WHERE embedding IS NULL
-                        AND (abstract IS NOT NULL OR full_text IS NOT NULL)
+                        AND (abstract IS NOT NULL OR title IS NOT NULL)
                         LIMIT %s
                     """, (sample_size,))
                     papers = cursor.fetchall()
@@ -183,7 +184,8 @@ class PipelineBenchmark:
 
         try:
             from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
+            model_name = os.getenv('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+            model = SentenceTransformer(model_name)
             model_load_time = time.time() - model_start
             print(f"   ✅ 모델 로딩 완료: {model_load_time:.2f}초")
         except Exception as e:
@@ -202,27 +204,28 @@ class PipelineBenchmark:
                     text_parts.append(paper['title'])
                 if paper['abstract']:
                     text_parts.append(paper['abstract'])
-                if paper['full_text']:
-                    text_parts.append(paper['full_text'][:5000])  # 처음 5000자만
 
                 combined_text = ' '.join(text_parts)
 
                 if combined_text.strip():
-                    # 임베딩 생성
                     embedding = model.encode(combined_text)
-
-                    # DB 저장
                     embedding_list = embedding.tolist()
+                    if len(embedding_list) != 384:
+                        print(f"   논문 {paper['id']}: 차원 {len(embedding_list)} 은 VECTOR(384)에 넣지 않음")
+                        continue
+
+                    embedding_str = '[' + ','.join(map(str, embedding_list)) + ']'
 
                     with psycopg2.connect(**DB_CONFIG) as conn:
                         with conn.cursor() as cursor:
                             cursor.execute("""
                                 UPDATE papers
-                                SET embedding = %s,
+                                SET embedding = %s::vector,
                                     embedding_model = %s,
-                                    embedding_generated_at = %s
+                                    embedding_generated_at = %s,
+                                    updated_at = NOW()
                                 WHERE id = %s
-                            """, (str(embedding_list), 'all-mpnet-base-v2', datetime.now(), paper['id']))
+                            """, (embedding_str, model_name, datetime.now(), paper['id']))
                             conn.commit()
 
                     elapsed = time.time() - start_time

@@ -16,9 +16,9 @@ import time
 DB_CONFIG = {
     'host': os.getenv('POSTGRES_HOST', 'localhost'),
     'port': int(os.getenv('POSTGRES_PORT', 5432)),
-    'database': os.getenv('POSTGRES_DB', 'papers_db'),
-    'user': os.getenv('POSTGRES_USER', 'postgres'),
-    'password': os.getenv('POSTGRES_PASSWORD', 'postgres123')
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 class FullOpenAlexCollector:
@@ -162,7 +162,7 @@ class FullOpenAlexCollector:
             return None
 
         try:
-            openalex_author_id = author_data.get('id', '').replace('https://openalex.org/', '')
+            openalex_author_id = (author_data.get('id') or '').replace('https://openalex.org/', '')
             name = author_data.get('display_name', '').strip()
             orcid = author_data.get('orcid', '').replace('https://orcid.org/', '') if author_data.get('orcid') else None
 
@@ -206,7 +206,7 @@ class FullOpenAlexCollector:
             return None
 
         try:
-            openalex_concept_id = concept_data.get('id', '').replace('https://openalex.org/', '')
+            openalex_concept_id = (concept_data.get('id') or '').replace('https://openalex.org/', '')
             name = concept_data.get('display_name', '').strip()
             level = concept_data.get('level', 0)
             works_count = concept_data.get('works_count', 0)
@@ -313,14 +313,9 @@ class FullOpenAlexCollector:
             with psycopg2.connect(**DB_CONFIG) as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
 
-                    # 1. 저널 정보 저장
-                    journal_id = None
-                    host_venue = paper.get('host_venue')
-                    if host_venue:
-                        journal_id = self.save_journal(host_venue, cursor)
-
-                    # 2. 논문 기본 정보 저장
-                    openalex_id = paper.get('id', '').replace('https://openalex.org/', '')
+                    # 논문 행은 RSP paperdb.papers 컬럼에 맞춘다.
+                    # journals 조회는 그 테이블이 없으면 트랜잭션 전체를 중단시키므로 하지 않는다.
+                    openalex_id = (paper.get('id') or '').replace('https://openalex.org/', '')
                     title = (paper.get('title') or '').strip()
                     abstract = paper.get('abstract_inverted_index')
 
@@ -339,8 +334,6 @@ class FullOpenAlexCollector:
                     publication_date = paper.get('publication_date')
                     is_open_access = open_access.get('is_oa', False)
 
-                    # 저널 정보 - primary_location에서 추출
-                    journal_id = None
                     journal_name = None
                     publisher = None
 
@@ -362,15 +355,10 @@ class FullOpenAlexCollector:
                                 publisher = source.get('host_organization_name')
                                 break
 
-                    # 3. 기존 저널 테이블에서 매칭되는 저널 찾기
                     if journal_name:
-                        journal_id = self.find_journal_by_issn_or_name(primary_location, journal_name, cursor)
-                        if journal_id:
-                            print(f"  📓 저널 매칭 성공: {journal_name} -> ID {journal_id}")
-                        else:
-                            print(f"  ⚠️ 저널 매칭 실패: {journal_name}")
+                        print(f"  📓 저널명: {journal_name}")
                     else:
-                        print(f"  ❌ 저널 정보 없음 (locations에서도 저널 타입 발견 못함)")
+                        print("  저널명 없음")
 
                     # 논문 타입과 키워드 정보 추출
                     paper_type = paper.get('type', 'article')
@@ -408,89 +396,127 @@ class FullOpenAlexCollector:
                     keywords_list = list(dict.fromkeys(keywords_list))[:20]  # 순서 유지하며 중복 제거
                     keywords = keywords_list if keywords_list else None
 
+                    author_names = []
+                    for authorship in paper.get('authorships') or []:
+                        author_info = authorship.get('author') or {}
+                        name = (author_info.get('display_name') or '').strip()
+                        if name and name not in author_names:
+                            author_names.append(name)
+
+                    concept_names = []
+                    for concept in paper.get('concepts') or []:
+                        name = (concept.get('display_name') or '').strip()
+                        if name and name not in concept_names:
+                            concept_names.append(name)
+                    for keyword in keywords_list:
+                        if keyword not in concept_names:
+                            concept_names.append(keyword)
+
+                    publication_year = None
+                    if publication_date and len(publication_date) >= 4 and publication_date[:4].isdigit():
+                        publication_year = int(publication_date[:4])
+                    oa_status = (open_access.get('oa_status') or ('gold' if is_open_access else 'closed'))
+
                     insert_paper_sql = """
                     INSERT INTO papers (
-                        openalex_paper_id, title, abstract_text, doi, pdf_url,
-                        citation_count, publication_date, is_open_access,
-                        publisher, journal_id, type, keywords, created_at
+                        openalex_id, title, abstract, doi, pdf_url,
+                        cited_by_count, published_date, publication_year,
+                        open_access_status, journal_name, authors, concepts,
+                        paper_source, updated_at
                     ) VALUES (
-                        %(openalex_paper_id)s, %(title)s, %(abstract_text)s, %(doi)s, %(pdf_url)s,
-                        %(citation_count)s, %(publication_date)s, %(is_open_access)s,
-                        %(publisher)s, %(journal_id)s, %(type)s, %(keywords)s, NOW()
-                    ) ON CONFLICT (openalex_paper_id) DO UPDATE SET
-                        citation_count = EXCLUDED.citation_count,
-                        keywords = EXCLUDED.keywords,
+                        %(openalex_id)s, %(title)s, %(abstract)s, %(doi)s, %(pdf_url)s,
+                        %(cited_by_count)s, %(published_date)s, %(publication_year)s,
+                        %(open_access_status)s, %(journal_name)s, %(authors)s, %(concepts)s,
+                        'openalex', NOW()
+                    ) ON CONFLICT (openalex_id) DO UPDATE SET
+                        cited_by_count = EXCLUDED.cited_by_count,
+                        pdf_url = COALESCE(EXCLUDED.pdf_url, papers.pdf_url),
+                        abstract = COALESCE(EXCLUDED.abstract, papers.abstract),
+                        authors = EXCLUDED.authors,
+                        concepts = EXCLUDED.concepts,
                         updated_at = NOW()
                     RETURNING id
                     """
 
                     cursor.execute(insert_paper_sql, {
-                        'openalex_paper_id': openalex_id,
+                        'openalex_id': openalex_id,
                         'title': title,
-                        'abstract_text': abstract_text,
-                        'doi': doi,
+                        'abstract': abstract_text or None,
+                        'doi': doi or None,
                         'pdf_url': pdf_url,
-                        'citation_count': citation_count,
-                        'publication_date': publication_date,
-                        'is_open_access': is_open_access,
-                        'publisher': publisher,
-                        'journal_id': journal_id,
-                        'type': paper_type,
-                        'keywords': json.dumps(keywords) if keywords else None
+                        'cited_by_count': citation_count or 0,
+                        'published_date': publication_date or None,
+                        'publication_year': publication_year,
+                        'open_access_status': oa_status,
+                        'journal_name': journal_name,
+                        'authors': author_names or None,
+                        'concepts': concept_names or None
                     })
 
                     paper_id = cursor.fetchone()['id']
                     print(f"✅ 논문 저장: ID {paper_id}, '{title[:30]}...'")
 
-                    # 3. 저자 정보 저장 및 관계 설정
-                    authorships = paper.get('authorships', [])
-                    for idx, authorship in enumerate(authorships):
-                        author_info = authorship.get('author', {})
-                        if author_info:
-                            author_id = self.save_author(author_info, cursor)
-                            if author_id:
-                                # 소속기관 정보
-                                institutions = authorship.get('institutions', [])
-                                affiliation = institutions[0].get('display_name') if institutions else None
+                    cursor.execute("SAVEPOINT relations")
+                    try:
+                        self._save_relations(paper, paper_id, cursor)
+                        cursor.execute("RELEASE SAVEPOINT relations")
+                    except Exception as rel_error:
+                        cursor.execute("ROLLBACK TO SAVEPOINT relations")
+                        print(f"  관계 테이블은 건너뜀: {rel_error}")
 
-                                if affiliation:
-                                    # 저자 소속 업데이트
-                                    cursor.execute(
-                                        "UPDATE authors SET affiliation = %s WHERE id = %s",
-                                        (affiliation, author_id)
-                                    )
-
-                                # 논문-저자 관계 저장
-                                is_corresponding = authorship.get('is_corresponding', False)
-
-                                cursor.execute("""
-                                INSERT INTO paper_authors (paper_id, author_id, author_order, is_corresponding)
-                                VALUES (%s, %s, %s, %s)
-                                ON CONFLICT (paper_id, author_id) DO UPDATE SET
-                                    author_order = EXCLUDED.author_order,
-                                    is_corresponding = EXCLUDED.is_corresponding
-                                """, (paper_id, author_id, idx + 1, is_corresponding))
-
-                    # 4. 개념 정보 저장 및 관계 설정
-                    concepts = paper.get('concepts', [])
-                    for concept in concepts:
-                        concept_id = self.save_concept(concept, cursor)
-                        if concept_id:
-                            relevance_score = concept.get('score', 0.0)
-
-                            cursor.execute("""
-                            INSERT INTO paper_concepts (paper_id, concept_id, relevance_score)
-                            VALUES (%s, %s, %s)
-                            ON CONFLICT (paper_id, concept_id) DO UPDATE SET
-                                relevance_score = EXCLUDED.relevance_score
-                            """, (paper_id, concept_id, relevance_score))
-
-                    print(f"  👥 저자 {len(authorships)}명, 🏷️ 개념 {len(concepts)}개 저장 완료")
                     return paper_id
 
         except Exception as e:
             print(f"❌ 논문 저장 실패 '{paper.get('title', 'Unknown')[:30]}...': {e}")
             return None
+
+    def _save_relations(self, paper, paper_id, cursor):
+        """저자·개념 관계 테이블이 있을 때만 채운다. 없으면 예외를 올린다."""
+        cursor.execute("""
+            SELECT to_regclass('public.authors') IS NOT NULL
+               AND to_regclass('public.concepts') IS NOT NULL
+               AND to_regclass('public.paper_authors') IS NOT NULL
+               AND to_regclass('public.paper_concepts') IS NOT NULL
+        """)
+        if not cursor.fetchone()[0]:
+            raise RuntimeError("authors/concepts 관계 테이블이 없음")
+
+        authorships = paper.get('authorships', [])
+        for idx, authorship in enumerate(authorships):
+            author_info = authorship.get('author', {})
+            if not author_info:
+                continue
+            author_id = self.save_author(author_info, cursor)
+            if not author_id:
+                continue
+            institutions = authorship.get('institutions', [])
+            affiliation = institutions[0].get('display_name') if institutions else None
+            if affiliation:
+                cursor.execute(
+                    "UPDATE authors SET affiliation = %s WHERE id = %s",
+                    (affiliation, author_id)
+                )
+            is_corresponding = authorship.get('is_corresponding', False)
+            cursor.execute("""
+            INSERT INTO paper_authors (paper_id, author_id, author_order, is_corresponding)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (paper_id, author_id) DO UPDATE SET
+                author_order = EXCLUDED.author_order,
+                is_corresponding = EXCLUDED.is_corresponding
+            """, (paper_id, author_id, idx + 1, is_corresponding))
+
+        concepts = paper.get('concepts', [])
+        for concept in concepts:
+            concept_id = self.save_concept(concept, cursor)
+            if not concept_id:
+                continue
+            relevance_score = concept.get('score', 0.0)
+            cursor.execute("""
+            INSERT INTO paper_concepts (paper_id, concept_id, relevance_score)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (paper_id, concept_id) DO UPDATE SET
+                relevance_score = EXCLUDED.relevance_score
+            """, (paper_id, concept_id, relevance_score))
 
     def reconstruct_abstract(self, inverted_index):
         """OpenAlex의 inverted index에서 abstract 복원"""
@@ -552,21 +578,26 @@ class FullOpenAlexCollector:
                     cursor.execute("SELECT COUNT(*) FROM papers WHERE pdf_url IS NOT NULL")
                     papers_with_pdf = cursor.fetchone()[0]
 
-                    cursor.execute("SELECT COUNT(*) FROM authors")
-                    authors_count = cursor.fetchone()[0]
-
-                    cursor.execute("SELECT COUNT(*) FROM concepts")
-                    concepts_count = cursor.fetchone()[0]
-
-                    cursor.execute("SELECT COUNT(*) FROM journals")
-                    journals_count = cursor.fetchone()[0]
+                    cursor.execute("SELECT COUNT(*) FROM papers WHERE embedding IS NOT NULL")
+                    papers_with_embedding = cursor.fetchone()[0]
 
                     print(f"\n📊 DB 현황:")
                     print(f"   총 논문: {papers_count}개")
                     print(f"   PDF 있는 논문: {papers_with_pdf}개")
-                    print(f"   저자: {authors_count}명")
-                    print(f"   개념: {concepts_count}개")
-                    print(f"   저널: {journals_count}개")
+                    print(f"   임베딩 있는 논문: {papers_with_embedding}개")
+
+                    for label, sql in (
+                        ("저자", "SELECT COUNT(*) FROM authors"),
+                        ("개념", "SELECT COUNT(*) FROM concepts"),
+                        ("저널", "SELECT COUNT(*) FROM journals"),
+                    ):
+                        cursor.execute("SAVEPOINT stats")
+                        try:
+                            cursor.execute(sql)
+                            print(f"   {label}: {cursor.fetchone()[0]}")
+                            cursor.execute("RELEASE SAVEPOINT stats")
+                        except Exception:
+                            cursor.execute("ROLLBACK TO SAVEPOINT stats")
 
         except Exception as e:
             print(f"❌ DB 통계 조회 실패: {e}")

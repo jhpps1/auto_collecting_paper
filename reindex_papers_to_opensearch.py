@@ -6,6 +6,7 @@ PostgreSQL의 모든 논문 데이터(임베딩 포함)를 OpenSearch에 색인�
 OpenSearch document ID = PostgreSQL papers.id 로 설정하여 ID 매칭 문제를 해결합니다.
 """
 
+import os
 import psycopg2
 import psycopg2.extras
 import requests
@@ -16,11 +17,11 @@ from datetime import datetime
 
 # 설정
 POSTGRES_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': 'postgres123'
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 OPENSEARCH_URL = "http://localhost:9200"

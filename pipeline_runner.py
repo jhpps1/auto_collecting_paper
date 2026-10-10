@@ -17,9 +17,9 @@ from monitoring.performance_logger import measure_openalex, measure_pdf_grobid, 
 DB_CONFIG = {
     'host': os.getenv('POSTGRES_HOST', 'localhost'),
     'port': int(os.getenv('POSTGRES_PORT', 5432)),
-    'database': os.getenv('POSTGRES_DB', 'papers_db'),
-    'user': os.getenv('POSTGRES_USER', 'postgres'),
-    'password': os.getenv('POSTGRES_PASSWORD', 'postgres123')
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 class PipelineRunner:

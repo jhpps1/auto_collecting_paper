@@ -3,16 +3,17 @@
 중복 저자 확인 스크립트
 """
 
+import os
 import psycopg2
 import psycopg2.extras
 
 # PostgreSQL 연결 설정
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': 'postgres123'
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 def check_duplicate_authors():

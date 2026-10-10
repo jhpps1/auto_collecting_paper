@@ -15,10 +15,10 @@ from datetime import datetime
 # PostgreSQL 연결 설정
 DB_CONFIG = {
     'host': os.getenv('POSTGRES_HOST', 'localhost'),
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': os.getenv('POSTGRES_PASSWORD', 'postgres123')
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 class InfinitePipeline:

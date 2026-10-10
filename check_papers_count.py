@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
+import os
 import psycopg2
 
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': 'postgres123'
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 try:

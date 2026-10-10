@@ -16,11 +16,11 @@ import os
 
 # PostgreSQL 연결 설정
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': 'postgres123'
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 class PerformanceLogger:
@@ -302,7 +302,7 @@ if __name__ == "__main__":
 
     # 샘플 데이터 로깅
     logger.log_performance('openalex', 'metadata_collection', 1.5, True, 1001, None, {'query': 'test'})
-    logger.log_performance('embedding', 'generate_embedding', 2.3, True, 1001, None, {'model': 'all-mpnet-base-v2'})
+    logger.log_performance('embedding', 'generate_embedding', 2.3, True, 1001, None, {'model': 'all-MiniLM-L6-v2'})
 
     # 메트릭 조회
     metrics = logger.get_recent_metrics(24)

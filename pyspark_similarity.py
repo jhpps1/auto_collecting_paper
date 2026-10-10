@@ -128,11 +128,11 @@ from pyspark.sql import Row
 
 # PostgreSQL 연결 설정
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': 'postgres123'
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 # HBase REST API 연결 설정
@@ -472,7 +472,7 @@ class PySparkSimilarityCalculator:
                     hbase_data['meta:source_title'] = data['source_title']
                     hbase_data['meta:total_similarities'] = str(len(data['similarities']))
                     hbase_data['meta:calculated_at'] = datetime.now().isoformat()
-                    hbase_data['meta:model'] = 'all-mpnet-base-v2'
+                    hbase_data['meta:model'] = os.getenv('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
 
                     # 유사도 정보 (Top-K)
                     for sim in data['similarities']:

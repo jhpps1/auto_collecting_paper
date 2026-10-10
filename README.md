@@ -1,184 +1,82 @@
-# 논문 수집 및 임베딩 파이프라인
+# 논문 수집·처리·임베딩
 
-OpenAlex API를 통한 논문 메타데이터 수집, PDF 다운로드, GROBID 텍스트 추출, 임베딩 생성까지의 완전한 파이프라인을 Docker Compose로 구성한 프로젝트입니다.
+OpenAlex에서 논문 메타데이터를 모아 PostgreSQL `paperdb`에 넣고, 제목과 초록으로 384차원 임베딩을 저장하는 배치 작업이다. 조회 API는 별도 저장소 [RSP](https://github.com/jhpps1/RSP)다. 두 프로세스는 서로를 호출하지 않고 같은 `papers` 테이블만 공유한다.
 
-## 🚀 빠른 시작
+## 무엇을 실행하나
 
-### 필수 요구사항
+| 작업 | 파일 | 요청 경로에 있나 |
+| --- | --- | --- |
+| OpenAlex 수집 | `full_openalex_collector.py` | 아니오. 배치 |
+| 임베딩 | `embedding_generator.py` | 아니오. 배치 |
+| PDF 본문 추출 | `pdf_grobid_processor.py` + GROBID | 아니오. 배치 |
+| 유사도 행렬 | `pyspark_similarity.py`, `simple_similarity.py` | 아니오. Postgres 임베딩을 읽어 HBase에 쓴다 |
+| 검색 색인 | `reindex_papers_to_opensearch.py` | 아니오. Postgres를 읽어 OpenSearch에 넣는다 |
 
-- Docker
-- Docker Compose
-- 8GB 이상의 RAM (GROBID 및 임베딩 모델 실행용)
+이 compose는 GROBID와 수집 명령만 올린다. PostgreSQL, HBase, OpenSearch, PySpark 클러스터는 올리지 않는다. 조회는 RSP의 `POST /search`가 `papers.embedding`을 읽는다.
 
-### 실행 방법
+`full_openalex_collector.py` 안의 concept 주석은 분야를 나눠 돌릴 때의 실행 메모다. 기본으로 주석이 풀려 있는 값은 Computer Science(`C41008148`)다.
 
-1. **저장소 클론**
-   ```bash
-   git clone <repository-url>
-   cd paper-collection-pipeline
-   ```
+## 공유 데이터베이스
 
-2. **Docker Compose로 전체 파이프라인 실행**
-   ```bash
-   docker compose up -d
-   ```
+RSP compose가 만드는 DB와 같다.
 
-   이 명령어로 다음 서비스들이 자동으로 시작됩니다:
-   - PostgreSQL (pgvector 확장 포함)
-   - GROBID 서비스
-   - 논문 수집 파이프라인
+- DB `paperdb`, 사용자 `admin`
+- 테이블 `papers`
+- 임베딩 모델 `all-MiniLM-L6-v2`, `VECTOR(384)`
+- PDF 링크는 OpenAlex `open_access.oa_url`만 저장한다
 
-3. **로그 확인**
-   ```bash
-   # 전체 로그 확인
-   docker compose logs -f
+예전 수집기 기본값은 DB `papers_db`, 임베딩 `all-mpnet-base-v2`(768차원)였다. 그 벡터는 조회 서버의 384차원 컬럼에 들어가지 않는다.
 
-   # 파이프라인만 확인
-   docker compose logs -f pipeline
-   ```
+저자·개념·저널용 관계 테이블이 없으면 그 쓰기는 건너뛰고 `papers` 행은 남긴다.
 
-4. **중지**
-   ```bash
-   docker compose down
-   ```
+## 실행
 
-## 📊 시스템 구성
+RSP를 먼저 띄운다. 그 compose는 호스트 5433에 Postgres를 연다. LAGO가 5432를 쓰는 경우를 피한 값이다.
 
-### 서비스 구성
+```bash
+cp .env.example .env
+```
 
-| 서비스 | 포트 | 설명 |
-|--------|------|------|
-| `postgres` | 5432 | PostgreSQL + pgvector (논문 데이터 저장) |
-| `grobid` | 8070 | GROBID 텍스트 추출 서비스 |
-| `pipeline` | - | 논문 수집 파이프라인 (백그라운드 실행) |
+메타데이터만 소수 수집한 뒤 임베딩한다.
 
-### 데이터베이스 스키마
+```bash
+python full_openalex_collector.py --query "machine learning" --count 10
+python embedding_generator.py
+```
 
-- **papers**: 논문 메타데이터, PDF URL, 전문 텍스트, 임베딩
-- **authors**: 저자 정보
-- **paper_authors**: 논문-저자 관계 (다대다)
+Docker로 수집만 할 때:
 
-## 🔄 파이프라인 단계
+```bash
+docker compose up --build
+```
 
-1. **OpenAlex API 수집**: 컴퓨터 과학 분야 논문 메타데이터 수집
-2. **PDF 다운로드**: 오픈 액세스 논문의 PDF 파일 다운로드
-3. **GROBID 처리**: PDF에서 구조화된 텍스트 추출
-4. **임베딩 생성**: Sentence Transformers로 768차원 벡터 생성
+`pipeline` 서비스의 기본 명령은 `full_openalex_collector.py --count 10`이고, 끝나면 컨테이너가 멈춘다. Postgres는 이 파일 안에 없다. 기본 호스트는 `host.docker.internal`, 포트는 `5433`이다. 같은 Docker 네트워크의 `postgres` 서비스에 붙이면 `POSTGRES_HOST=postgres`, `POSTGRES_PORT=5432`로 덮어쓴다.
 
-## ⚙️ 환경 변수
+`infinite_pipeline.py`는 수집과 임베딩을 반복하고, 논문이 10건 이상이면 `simple_similarity.py`로 HBase REST(`localhost:8080`)에 유사도를 쓰려 한다. 이 compose는 HBase를 시작하지 않으므로 그 스크립트는 기본 명령이 아니다.
 
-Docker Compose에서 자동으로 설정되는 환경 변수들:
+GROBID만 확인할 때:
 
-```yaml
-# PostgreSQL 설정
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-POSTGRES_DB=papers_db
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres123
+```bash
+docker compose up grobid
+curl http://localhost:8070/api/isalive
+```
 
-# GROBID 설정
+PDF가 있는 행에 본문을 붙일 때 `python pdf_grobid_processor.py`. 결과는 `papers.full_text`, `papers.grobid_data`에 들어간다. 조회 검색은 이 컬럼을 쓰지 않고 `embedding`을 쓴다.
+
+## 환경 변수
+
+`.env.example`을 본다.
+
+```
+POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
+EMBEDDING_MODEL=all-MiniLM-L6-v2
 GROBID_URL=http://grobid:8070
 ```
 
-## 📈 모니터링
+## 배치 작업이 기대하는 것
 
-### 데이터베이스 직접 접근
+- `pyspark_similarity.py`: PySpark로 Postgres 임베딩의 코사인 유사도를 계산하고 HBase REST에 저장
+- `simple_similarity.py`: 같은 일을 numpy로 계산
+- `reindex_papers_to_opensearch.py`: Postgres 행을 OpenSearch `papers` 인덱스에 넣음. 기본 주소 `http://localhost:9200`
 
-```bash
-# PostgreSQL 컨테이너에 접속
-docker compose exec postgres psql -U postgres -d papers_db
-
-# 논문 수 확인
-SELECT COUNT(*) FROM papers;
-
-# 임베딩 생성된 논문 수 확인
-SELECT COUNT(*) FROM papers WHERE embedding IS NOT NULL;
-```
-
-### 파이프라인 상태 확인
-
-```bash
-# 파이프라인 로그 실시간 확인
-docker compose logs -f pipeline
-
-# 현재 실행 중인 서비스 확인
-docker compose ps
-```
-
-## 🛠️ 커스터마이징
-
-### 검색 키워드 수정
-
-`pipeline_runner.py` 파일의 `keywords` 리스트를 수정하여 수집할 논문 주제를 변경할 수 있습니다.
-
-### 배치 크기 조정
-
-`pipeline_runner.py`에서 `target_papers_per_batch` 값을 조정하여 한 번에 수집할 논문 수를 변경할 수 있습니다.
-
-### 모델 변경
-
-`embedding_generator.py`에서 사용하는 Sentence Transformers 모델을 변경할 수 있습니다.
-
-## 🐛 문제 해결
-
-### 메모리 부족 오류
-- Docker Desktop의 메모리 할당을 8GB 이상으로 늘려주세요.
-
-### GROBID 서비스 연결 실패
-```bash
-# GROBID 서비스 상태 확인
-curl http://localhost:8070/api/isalive
-
-# 서비스 재시작
-docker compose restart grobid
-```
-
-### 데이터베이스 연결 오류
-```bash
-# PostgreSQL 상태 확인
-docker compose exec postgres pg_isready -U postgres
-
-# 데이터베이스 로그 확인
-docker compose logs postgres
-```
-
-## 📁 데이터 영속성
-
-- PostgreSQL 데이터: `postgres_data` Docker 볼륨에 저장
-- PDF 파일: `./pdfs` 디렉토리에 저장
-- GROBID 출력: `./grobid_output` 디렉토리에 저장
-
-## 🔧 개발자 가이드
-
-### 로컬 개발 환경 설정
-
-```bash
-# Python 가상환경 생성
-python3 -m venv venv
-source venv/bin/activate
-
-# 의존성 설치
-pip install -r requirements.txt
-
-# 환경변수 설정 후 개별 실행
-export POSTGRES_HOST=localhost
-python3 pipeline_runner.py --single
-```
-
-### 단계별 실행
-
-```bash
-# 1. 메타데이터만 수집
-python3 full_openalex_collector.py --query "machine learning" --count 10
-
-# 2. PDF 처리만 실행
-python3 pdf_grobid_processor.py
-
-# 3. 임베딩만 생성
-python3 embedding_generator.py
-```
-
-## 📝 라이센스
-
-이 프로젝트는 MIT 라이센스 하에 배포됩니다.
+처리량 수치는 적혀 있지 않다. 클러스터가 이 compose에 없기 때문이다.

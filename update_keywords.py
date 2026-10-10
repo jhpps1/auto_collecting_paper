@@ -3,6 +3,7 @@
 기존 논문들의 keywords를 OpenAlex API에서 다시 가져와서 업데이트
 """
 
+import os
 import psycopg2
 import requests
 import json
@@ -11,11 +12,11 @@ from typing import List, Dict, Any
 
 # PostgreSQL 연결 설정
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'database': 'papers_db',
-    'user': 'postgres',
-    'password': 'postgres123'
+    'host': os.getenv('POSTGRES_HOST', 'localhost'),
+    'port': int(os.getenv('POSTGRES_PORT', '5432')),
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 def extract_keywords_from_paper(paper: Dict[str, Any]) -> List[str]:

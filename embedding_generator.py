@@ -2,8 +2,10 @@
 """
 논문 임베딩 생성 스크립트
 
-GROBID로 처리된 논문 텍스트를 바탕으로 Sentence Transformers를 사용하여
-768차원 임베딩을 생성하고 PostgreSQL pgvector에 저장
+제목과 초록(있으면 GROBID 본문)으로 Sentence Transformers 임베딩을 만들고
+paperdb.papers.embedding VECTOR(384)에 저장한다.
+기본 모델은 all-MiniLM-L6-v2 이다. 예전 기본값은 all-mpnet-base-v2(768)였고
+조회 서버 차원과 맞지 않는다.
 """
 
 import psycopg2
@@ -17,27 +19,33 @@ from typing import List, Dict, Any
 import sys
 import os
 
-# 모니터링 모듈 추가
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from monitoring.performance_logger import measure_embedding, get_performance_logger
+try:
+    from monitoring.performance_logger import measure_embedding, get_performance_logger
+except ImportError:
+    measure_embedding = None
+    get_performance_logger = None
 
 # PostgreSQL 연결 설정
 DB_CONFIG = {
     'host': os.getenv('POSTGRES_HOST', 'localhost'),
     'port': int(os.getenv('POSTGRES_PORT', 5432)),
-    'database': os.getenv('POSTGRES_DB', 'papers_db'),
-    'user': os.getenv('POSTGRES_USER', 'postgres'),
-    'password': os.getenv('POSTGRES_PASSWORD', 'postgres123')
+    'database': os.getenv('POSTGRES_DB', 'paperdb'),
+    'user': os.getenv('POSTGRES_USER', 'admin'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'password')
 }
 
 class EmbeddingGenerator:
-    def __init__(self, model_name='all-mpnet-base-v2'):
+    def __init__(self, model_name=None):
         """
         임베딩 생성기 초기화
 
         Args:
-            model_name: Sentence Transformers 모델명
+            model_name: Sentence Transformers 모델명. 비우면 EMBEDDING_MODEL.
         """
+        if not model_name:
+            model_name = os.getenv('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+        self.model_name = model_name
         print(f"🤖 임베딩 모델 로딩: {model_name}")
 
         # GPU 사용 가능 여부 확인
@@ -47,6 +55,10 @@ class EmbeddingGenerator:
         # Sentence Transformers 모델 로드
         self.model = SentenceTransformer(model_name, device=device)
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
+        if self.embedding_dim != 384:
+            raise RuntimeError(
+                f"{model_name} 차원은 {self.embedding_dim}이다. papers.embedding은 VECTOR(384)이다."
+            )
 
         print(f"✅ 모델 로딩 완료 - 임베딩 차원: {self.embedding_dim}")
 
@@ -76,6 +88,9 @@ class EmbeddingGenerator:
                 abstract = grobid_data.get('abstract', '')
             except (json.JSONDecodeError, TypeError):
                 pass
+
+        if not abstract and paper_data.get('abstract'):
+            abstract = paper_data['abstract']
 
         if not abstract and paper_data.get('abstract_text'):
             abstract = paper_data['abstract_text']
@@ -125,7 +140,7 @@ class EmbeddingGenerator:
             text: 입력 텍스트
 
         Returns:
-            768차원 임베딩 벡터
+            384차원 임베딩 벡터
         """
         try:
             embedding = self.model.encode(text, convert_to_numpy=True)
@@ -150,16 +165,20 @@ class EmbeddingGenerator:
                 with conn.cursor() as cursor:
 
                     # pgvector 확장을 위한 임베딩 포맷 변환
+                    if int(embedding.shape[0]) != 384:
+                        print(f"  ❌ 임베딩 차원이 {embedding.shape[0]}이다. 384만 저장한다.")
+                        return False
+
                     embedding_str = '[' + ','.join(map(str, embedding)) + ']'
 
                     cursor.execute("""
                         UPDATE papers
                         SET embedding = %s::vector,
-                            embedding_model = 'all-mpnet-base-v2',
+                            embedding_model = %s,
                             embedding_generated_at = NOW(),
                             updated_at = NOW()
                         WHERE id = %s
-                    """, (embedding_str, paper_id))
+                    """, (embedding_str, self.model_name, paper_id))
 
                     return True
 
@@ -177,10 +196,15 @@ class EmbeddingGenerator:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
 
                     cursor.execute("""
-                        SELECT id, title, abstract_text, full_text, grobid_data
+                        SELECT id, title, abstract, full_text, grobid_data
                         FROM papers
-                        WHERE (full_text IS NOT NULL OR grobid_data IS NOT NULL)
-                        AND embedding IS NULL
+                        WHERE embedding IS NULL
+                          AND (
+                            COALESCE(title, '') <> ''
+                            OR COALESCE(abstract, '') <> ''
+                            OR COALESCE(full_text, '') <> ''
+                            OR grobid_data IS NOT NULL
+                          )
                         ORDER BY id
                     """)
 
@@ -252,7 +276,7 @@ class EmbeddingGenerator:
                         SELECT
                             COUNT(*) as total_papers,
                             COUNT(CASE WHEN embedding IS NOT NULL THEN 1 END) as with_embedding,
-                            COUNT(CASE WHEN full_text IS NOT NULL OR grobid_data IS NOT NULL THEN 1 END) as with_text,
+                            COUNT(CASE WHEN abstract IS NOT NULL OR full_text IS NOT NULL OR grobid_data IS NOT NULL THEN 1 END) as with_text,
                             COUNT(CASE WHEN grobid_status = 'completed' THEN 1 END) as grobid_completed
                         FROM papers
                     """)

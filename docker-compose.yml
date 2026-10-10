@@ -1,4 +1,4 @@
-version: '3.8'
+name: paper-collect
 
 services:
   grobid:
@@ -10,12 +10,15 @@ services:
     build: .
     depends_on:
       - grobid
-    env_file:
-      - .env
     environment:
-      - GROBID_URL=http://grobid:8070
+      POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5433}
+      POSTGRES_DB: ${POSTGRES_DB:-paperdb}
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      GROBID_URL: http://grobid:8070
     volumes:
       - ./pdfs:/app/pdfs
       - ./grobid_output:/app/grobid_output
-    restart: unless-stopped
-    command: ["python3", "infinite_pipeline.py"]  # 무한 수집 모드
+    command: ["python3", "full_openalex_collector.py", "--count", "10", "--query", "machine learning"]
